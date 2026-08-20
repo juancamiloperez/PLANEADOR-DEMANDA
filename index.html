@@ -1,0 +1,1051 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SKU Forecast & Safety Stock Analyzer</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#f4f6fb; --panel:#ffffff; --panel2:#f0f2f8; --border:#e2e6f0;
+    --text:#1c2333; --muted:#6b7488; --accent:#2f5cf6; --accent2:#1fae7a;
+    --warn:#e8a319; --danger:#e14a52; --radius:12px;
+    --dbg:#0b1020; --dpanel:#131a2e; --dpanel2:#1a2338; --dborder:#242f4a; --dtext:#e8ecf6; --dmuted:#8b93a7;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--dbg);color:var(--dtext);}
+  .hidden{display:none !important;}
+  #loginScreen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;}
+  .login-card{background:var(--dpanel);border:1px solid var(--dborder);border-radius:var(--radius);padding:36px;width:100%;max-width:380px;}
+  .login-card h1{font-size:20px;margin:0 0 4px;}
+  .login-card p{color:var(--dmuted);font-size:13px;margin:0 0 24px;}
+  label{font-size:12px;color:var(--dmuted);display:block;margin-bottom:6px;}
+  input, select{width:100%;padding:9px 11px;background:var(--dpanel2);border:1px solid var(--dborder);border-radius:8px;color:var(--dtext);font-size:13px;margin-bottom:12px;}
+  button{cursor:pointer;border:none;border-radius:8px;padding:10px 16px;font-size:13px;font-weight:600;}
+  .btn-primary{background:var(--accent);color:white;}
+  .btn-primary:hover{opacity:.92;}
+  .btn-secondary{background:var(--dpanel2);color:var(--dtext);border:1px solid var(--dborder);}
+  .full{width:100%;}
+  #loginError{color:var(--danger);font-size:13px;margin-top:-4px;margin-bottom:12px;min-height:16px;}
+  header{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;border-bottom:1px solid var(--dborder);background:var(--dpanel);}
+  header h1{font-size:16px;margin:0;}
+  header .sub{color:var(--dmuted);font-size:12px;}
+  nav{display:flex;gap:8px;}
+  nav button{background:transparent;color:var(--dmuted);padding:8px 14px;border-radius:8px;}
+  nav button.active{background:var(--accent);color:white;}
+  main{padding:24px;max-width:1440px;margin:0 auto;background:var(--bg);color:var(--text);border-radius:16px;margin-top:16px;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
+  @media (max-width:900px){ .grid2, .grid3{grid-template-columns:1fr;} }
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:16px;}
+  .card h3{margin:0 0 12px;font-size:14px;color:var(--text);}
+  .card h4{margin:0 0 4px;font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.03em;}
+  .field-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px 14px;}
+  @media (max-width:900px){ .field-grid{grid-template-columns:repeat(2,1fr);} }
+  .field-grid label{color:var(--muted);}
+  .field-grid input, .field-grid select{background:var(--panel2);color:var(--text);border:1px solid var(--border);}
+  .dropzone{border:2px dashed var(--border);border-radius:var(--radius);padding:28px;text-align:center;color:var(--muted);cursor:pointer;margin-bottom:12px;background:var(--panel2);}
+  .dropzone.drag{border-color:var(--accent);color:var(--text);}
+  .row-buttons{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;}
+  .mapping-highlight{background:#fff8dc;border:1px solid #f0d878;border-radius:10px;padding:14px;margin-top:6px;}
+  .mapping-highlight .field-grid{grid-template-columns:repeat(5,1fr);}
+  @media (max-width:1100px){ .mapping-highlight .field-grid{grid-template-columns:repeat(2,1fr);} }
+  .mapping-highlight select{color:var(--text);background:white;}
+  .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px;}
+  .kpi{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:14px;}
+  .kpi .val{font-size:22px;font-weight:700;color:var(--text);}
+  .kpi .lbl{color:var(--muted);font-size:11px;margin-top:2px;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;color:var(--text);}
+  th,td{padding:7px 9px;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap;}
+  th{color:var(--muted);font-weight:600;position:sticky;top:0;background:var(--panel);cursor:pointer;font-size:11px;text-transform:uppercase;}
+  tbody tr:hover{background:var(--panel2);}
+  .table-wrap{overflow:auto;max-height:55vh;border:1px solid var(--border);border-radius:8px;}
+  .badge{padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;}
+  .badge-A{background:rgba(31,174,122,.15);color:var(--accent2);}
+  .badge-B{background:rgba(232,163,25,.15);color:var(--warn);}
+  .badge-C{background:rgba(225,74,82,.15);color:var(--danger);}
+  .badge-Smooth{background:rgba(31,174,122,.15);color:var(--accent2);}
+  .badge-Erratic{background:rgba(232,163,25,.15);color:var(--warn);}
+  .badge-Intermittent{background:rgba(47,92,246,.15);color:var(--accent);}
+  .badge-Lumpy{background:rgba(225,74,82,.15);color:var(--danger);}
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px;}
+  .toolbar input, .toolbar select{margin:0;width:auto;min-width:150px;background:var(--panel2);color:var(--text);border:1px solid var(--border);}
+  .pager{display:flex;gap:8px;align-items:center;margin-top:10px;color:var(--muted);font-size:12.5px;}
+  #importStatus{font-size:12.5px;color:var(--muted);white-space:pre-line;margin-top:8px;}
+  .progress{height:8px;background:var(--panel2);border-radius:4px;overflow:hidden;margin-top:8px;}
+  .progress-bar{height:100%;background:var(--accent);width:0%;transition:width .2s;}
+  .small{font-size:11.5px;color:var(--muted);}
+  a{color:var(--accent);}
+  code{background:var(--panel2);padding:1px 6px;border-radius:4px;color:var(--text);}
+  .matrix-table{width:auto;}
+  .matrix-table td, .matrix-table th{text-align:center;padding:10px 18px;}
+  .matrix-cell{font-weight:700;font-size:15px;border-radius:6px;}
+  canvas{max-width:100%;}
+  @media print {
+    header, nav, #view-import, .toolbar, .pager { display:none !important; }
+    body{background:white;color:black;}
+    main{background:white;color:black;}
+  }
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <div class="login-card">
+    <h1>SKU Forecast & Safety Stock Analyzer</h1>
+    <p>Ingresa con tu cuenta de equipo para continuar.</p>
+    <div id="configWarning" class="hidden" style="background:rgba(225,74,82,.1);border:1px solid var(--danger);border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;color:var(--danger);">
+      Falta configurar la conexión a Supabase. Edita <code>SUPABASE_URL</code> y <code>SUPABASE_ANON_KEY</code> en el &lt;script&gt;.
+    </div>
+    <label for="email">Correo</label>
+    <input id="email" type="email" placeholder="tucorreo@empresa.com">
+    <label for="password">Contraseña</label>
+    <input id="password" type="password" placeholder="••••••••">
+    <div id="loginError"></div>
+    <button class="btn-primary full" onclick="login()">Iniciar sesión</button>
+    <p class="small" style="margin-top:16px;">Las cuentas las crea un administrador en Supabase (Authentication → Users).</p>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+  <header>
+    <div>
+      <h1>SKU Forecast & Safety Stock Analyzer</h1>
+      <div class="sub" id="userEmail"></div>
+    </div>
+    <nav>
+      <button id="navImport" class="active" onclick="showView('import')">1. Carga y parámetros</button>
+      <button id="navDashboard" onclick="showView('dashboard')">2. Dashboard ejecutivo</button>
+      <button class="btn-secondary" onclick="window.print()">Imprimir / PDF</button>
+      <button class="btn-secondary" onclick="logout()">Cerrar sesión</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ================= IMPORT + PARÁMETROS ================= -->
+    <div id="view-import">
+      <div class="grid2">
+        <div class="card">
+          <h3>1. Carga de archivo</h3>
+          <p class="small">Sube un archivo .xlsx o .csv. Estructura esperada: una fila por SKU, columnas de metadata, LT, GR processing y periodos de consumo. La app detecta columnas automáticamente y permite corregir el mapeo.</p>
+          <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
+            Arrastra tu archivo aquí o haz clic para seleccionarlo
+          </div>
+          <input type="file" id="fileInput" accept=".csv,.xlsx" class="hidden" onchange="handleFile(this.files[0])">
+          <div class="row-buttons">
+            <button class="btn-secondary" onclick="downloadTemplate()">↓ Descargar template Excel</button>
+          </div>
+          <div id="fileStatus" class="small"></div>
+
+          <div id="mappingBlock" class="mapping-highlight hidden">
+            <h4>Mapeo detectado</h4>
+            <div class="field-grid">
+              <div><label>SKU / Material</label><select id="mapSku"></select></div>
+              <div><label>LT manufactura</label><select id="mapLt"></select></div>
+              <div><label>GR processing / tránsito</label><select id="mapGr"></select></div>
+              <div><label>Primer periodo</label><select id="mapFirstPeriod"></select></div>
+              <div><label>Último periodo</label><select id="mapLastPeriod"></select></div>
+            </div>
+            <div class="row-buttons" style="margin-top:12px;">
+              <button class="btn-primary" onclick="analyzeSkus()">Analizar SKUs</button>
+              <button class="btn-secondary" onclick="clearImport()">Limpiar</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>2. Parámetros ejecutivos</h3>
+          <div class="field-grid">
+            <div><label>Nivel de servicio objetivo (%)</label><input id="pServiceLevel" type="number" value="95" min="50" max="99.9" step="0.1"></div>
+            <div><label>Unidad de LT / GR</label>
+              <select id="pLtUnit"><option value="dias">Días</option><option value="periodos">Periodos (semanas/meses)</option></select>
+            </div>
+            <div><label>LT default si falta</label><input id="pLtDefault" type="number" value="21"></div>
+            <div><label>GR default si falta</label><input id="pGrDefault" type="number" value="5"></div>
+
+            <div><label>Alfa suavización</label><input id="pAlpha" type="number" value="0.30" step="0.05" min="0.01" max="0.99"></div>
+            <div><label>Beta tendencia</label><input id="pBeta" type="number" value="0.10" step="0.05" min="0.01" max="0.99"></div>
+            <div><label>Gamma estacionalidad</label><input id="pGamma" type="number" value="0.10" step="0.05" min="0.01" max="0.99"></div>
+            <div><label>Longitud estacional</label>
+              <select id="pSeasonLength"><option value="auto">Auto</option><option value="4">4</option><option value="12">12</option><option value="52">52</option></select>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:6px;margin-top:6px;">
+              <input id="pExcludeOutliers" type="checkbox" checked style="width:auto;margin:0;">
+              <label style="margin:0;">Excluir outliers (Regla IQR)</label>
+            </div>
+            <div><label>Regla IQR: Q3 + k·IQR</label><input id="pIqrK" type="number" value="1.5" step="0.1"></div>
+            <div><label>Lookback promedio móvil</label><input id="pLookback" type="number" value="4" min="2"></div>
+            <div><label>Horizonte pronóstico (periodos)</label><input id="pHorizon" type="number" value="10" min="1"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Importar desde Google Sheets (opcional)</h3>
+        <p class="small">Comparte tu hoja como "Cualquiera con el enlace — Lector" y pega el enlace. Debe tener las mismas columnas que la plantilla.</p>
+        <input id="sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/....">
+        <button class="btn-primary" style="width:auto;" onclick="importFromGoogleSheet()">Cargar desde Sheets</button>
+      </div>
+
+      <div class="card">
+        <div id="importStatus">Sin importaciones en esta sesión.</div>
+        <div class="progress"><div class="progress-bar" id="progressBar"></div></div>
+      </div>
+    </div>
+
+    <!-- ================= DASHBOARD ================= -->
+    <div id="view-dashboard" class="hidden">
+      <div class="card">
+        <div class="toolbar">
+          <input id="searchBox" placeholder="Material, SKU o descripción...">
+          <select id="filterFamily"><option value="">Todos (Familia)</option></select>
+          <select id="filterPlant"><option value="">Todos (Planta)</option></select>
+          <select id="filterAbc"><option value="">Todos (ABC)</option><option value="A">A</option><option value="B">B</option><option value="C">C</option></select>
+          <select id="filterClass"><option value="">Todos (Clase demanda)</option><option value="Smooth">Smooth</option><option value="Erratic">Erratic</option><option value="Intermittent">Intermittent</option><option value="Lumpy">Lumpy</option></select>
+          <select id="filterModel"><option value="">Sin filtro (Modelo)</option></select>
+          <button class="btn-primary" onclick="applyFilters()">Aplicar filtros</button>
+          <button class="btn-secondary" onclick="clearFilters()">Limpiar filtros</button>
+        </div>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="kpi"><div class="val" id="kpiTotal">0</div><div class="lbl">SKUs totales</div></div>
+        <div class="kpi"><div class="val" id="kpiValue">0</div><div class="lbl">Volumen anual estimado</div></div>
+        <div class="kpi"><div class="val" id="kpiA">0</div><div class="lbl">Clase A</div></div>
+        <div class="kpi"><div class="val" id="kpiB">0</div><div class="lbl">Clase B</div></div>
+        <div class="kpi"><div class="val" id="kpiC">0</div><div class="lbl">Clase C</div></div>
+      </div>
+
+      <div class="grid2">
+        <div class="card">
+          <h3>Matriz ADI vs CV²: tipo de demanda</h3>
+          <canvas id="chartAdiCv" height="260"></canvas>
+        </div>
+        <div class="card">
+          <h3>Demanda total por periodo (estacionalidad)</h3>
+          <canvas id="chartSeasonality" height="260"></canvas>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="card">
+          <h3>Matriz ABC / XYZ (conteo de SKUs)</h3>
+          <div id="abcXyzMatrix"></div>
+        </div>
+        <div class="card">
+          <h3>Distribución por clase de demanda</h3>
+          <canvas id="chartDemandClass" height="260"></canvas>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="card">
+          <h3>Top 15 SKUs por safety stock</h3>
+          <canvas id="chartTop15" height="300"></canvas>
+        </div>
+        <div class="card">
+          <h3>Distribución por modelo recomendado</h3>
+          <canvas id="chartModelDist" height="300"></canvas>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="row-buttons" style="justify-content:space-between;align-items:center;">
+          <h3 style="margin:0;">Resultados ejecutivos por SKU</h3>
+          <div class="row-buttons" style="margin:0;">
+            <button class="btn-secondary" id="btnVerTodos" onclick="toggleVerTodos()">Ver todos (0)</button>
+            <button class="btn-secondary" onclick="exportExcel()">↓ Descargar Excel</button>
+            <button class="btn-secondary" onclick="exportCsv()">↓ Descargar CSV</button>
+            <button class="btn-secondary" onclick="window.print()">↓ PDF ejecutivo</button>
+          </div>
+        </div>
+        <div class="kpi-strip small" id="kpiStrip" style="margin:10px 0;color:var(--muted);"></div>
+        <p class="small">Por defecto se muestran los 10 SKUs más relevantes (mayor safety stock). Haz clic en un encabezado para ordenar y en una fila para ver el detalle del SKU. Las descargas incluyen todos los SKUs filtrados.</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th onclick="sortBy('sku')">SKU</th>
+                <th onclick="sortBy('abc_class')">ABC</th>
+                <th onclick="sortBy('xyz_class')">XYZ</th>
+                <th onclick="sortBy('demand_class')">Tipo demanda</th>
+                <th onclick="sortBy('avg_demand')">Vol. prom / periodo</th>
+                <th onclick="sortBy('cv')">CV</th>
+                <th onclick="sortBy('cv2')">CV²</th>
+                <th onclick="sortBy('adi')">ADI</th>
+                <th onclick="sortBy('lt_total_periods')">LT total sem</th>
+                <th onclick="sortBy('safety_stock')">Safety stock</th>
+                <th onclick="sortBy('reorder_point')">ROP</th>
+                <th onclick="sortBy('forecast_next')">Forecast sig.</th>
+                <th onclick="sortBy('recommended_model')">Modelo</th>
+                <th onclick="sortBy('wmape')">Error WMAPE</th>
+                <th onclick="sortBy('risk')">Riesgo</th>
+                <th onclick="sortBy('outliers_count')">Outliers</th>
+                <th>Recomendación</th>
+              </tr>
+            </thead>
+            <tbody id="skuTableBody"></tbody>
+          </table>
+        </div>
+        <div class="pager">
+          <button class="btn-secondary" id="btnPrev" onclick="prevPage()">← Anterior</button>
+          <span id="pageInfo">Página 1</span>
+          <button class="btn-secondary" id="btnNext" onclick="nextPage()">Siguiente →</button>
+          <span id="rowRange" class="small"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal de detalle de SKU -->
+    <div id="skuDetailModal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:50;display:flex;align-items:center;justify-content:center;padding:20px;">
+      <div class="card" style="max-width:600px;width:100%;max-height:85vh;overflow:auto;">
+        <div class="row-buttons" style="justify-content:space-between;align-items:center;">
+          <h3 id="modalTitle" style="margin:0;">Detalle SKU</h3>
+          <button class="btn-secondary" onclick="closeSkuDetail()">Cerrar ✕</button>
+        </div>
+        <div id="modalBody"></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+/* ================================================================
+   CONFIGURACIÓN
+   ================================================================ */
+const SUPABASE_URL = "https://cxtpjfcygksvokwhuvyf.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_OkHBh7nI6sGrXqNHnT9TaQ_xtQ6rzW2";
+let supabaseClient = null;
+if (!SUPABASE_URL.includes("TU-PROYECTO")) {
+  supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+} else {
+  document.getElementById('configWarning').classList.remove('hidden');
+}
+
+/* ================================================================
+   ESTADO
+   ================================================================ */
+let allSkus = [], filteredSkus = [];
+let currentPage = 1, PAGE_SIZE = 50, verTodos = false;
+let sortField = 'safety_stock', sortDir = 'desc';
+let parsedHeaders = [], parsedRows = [];
+let charts = {};
+const MODEL_LIST = ['SES','Moving Average','Naive','SBA','Holt','Holt-Winters','Croston','TSB'];
+
+/* ================================================================
+   AUTENTICACIÓN
+   ================================================================ */
+async function login(){
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+  const errEl = document.getElementById('loginError');
+  errEl.textContent = '';
+  if (!supabaseClient){ errEl.textContent = 'Configura primero la conexión a Supabase.'; return; }
+  const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  if (error){
+    if (error.message.includes('Email not confirmed')) errEl.textContent = 'El correo no está confirmado.';
+    else if (error.message.includes('Invalid login credentials')) errEl.textContent = 'Correo o contraseña incorrectos, o el usuario no existe.';
+    else errEl.textContent = 'Error: ' + error.message;
+    return;
+  }
+  onAuthed(data.user);
+}
+async function logout(){ if (supabaseClient) await supabaseClient.auth.signOut(); document.getElementById('app').classList.add('hidden'); document.getElementById('loginScreen').classList.remove('hidden'); }
+function onAuthed(user){
+  document.getElementById('loginScreen').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  document.getElementById('userEmail').textContent = user.email;
+  loadAllSkus();
+}
+async function checkSession(){ if (!supabaseClient) return; const { data } = await supabaseClient.auth.getSession(); if (data.session) onAuthed(data.session.user); }
+checkSession();
+
+function showView(view){
+  document.getElementById('view-import').classList.toggle('hidden', view !== 'import');
+  document.getElementById('view-dashboard').classList.toggle('hidden', view !== 'dashboard');
+  document.getElementById('navImport').classList.toggle('active', view === 'import');
+  document.getElementById('navDashboard').classList.toggle('active', view === 'dashboard');
+  if (view === 'dashboard') renderAll();
+}
+
+/* ================================================================
+   UTILIDADES ESTADÍSTICAS
+   ================================================================ */
+function mean(a){ return a.length ? a.reduce((x,y)=>x+y,0)/a.length : 0; }
+function stdev(a){ if (a.length<2) return 0; const m=mean(a); return Math.sqrt(a.reduce((s,v)=>s+Math.pow(v-m,2),0)/(a.length-1)); }
+function round2(n){ return Math.round((n+Number.EPSILON)*100)/100; }
+const Z_TABLE = {0.90:1.2816,0.95:1.6449,0.975:1.9600,0.99:2.3263,0.995:2.5758};
+function zScore(sl){ const keys=Object.keys(Z_TABLE).map(Number); const c=keys.reduce((a,b)=>Math.abs(b-sl)<Math.abs(a-sl)?b:a); return Z_TABLE[c]; }
+
+function iqrCap(arr, k){
+  if (arr.length < 4) return arr.slice();
+  const s = [...arr].sort((a,b)=>a-b);
+  const q1 = s[Math.floor(s.length*0.25)];
+  const q3 = s[Math.floor(s.length*0.75)];
+  const upper = q3 + k*(q3-q1);
+  return arr.map(v => v > upper ? upper : v);
+}
+function linSlope(arr){
+  const n = arr.length; if (n<2) return 0;
+  const xs = arr.map((_,i)=>i);
+  const mx = mean(xs), my = mean(arr);
+  let num=0, den=0;
+  for(let i=0;i<n;i++){ num += (xs[i]-mx)*(arr[i]-my); den += (xs[i]-mx)**2; }
+  return den===0 ? 0 : num/den;
+}
+function autocorr(arr, lag){
+  const n = arr.length; if (n <= lag) return 0;
+  const m = mean(arr);
+  let num=0, den=0;
+  for(let i=lag;i<n;i++){ num += (arr[i]-m)*(arr[i-lag]-m); }
+  for(let i=0;i<n;i++){ den += (arr[i]-m)**2; }
+  return den===0 ? 0 : num/den;
+}
+function chooseSeasonLength(n, setting){
+  if (setting !== 'auto') return parseInt(setting);
+  const candidates = [52,12,4];
+  for (const c of candidates) if (n >= 2*c) return c;
+  return null;
+}
+
+/* ================================================================
+   MODELOS DE PRONÓSTICO
+   ================================================================ */
+function fNaive(a){ return a.length ? a[a.length-1] : 0; }
+function fMovingAverage(a, k){ return mean(a.slice(-k)); }
+function fSES(a, alpha){ let level=a[0]||0; for(let t=1;t<a.length;t++) level = alpha*a[t] + (1-alpha)*level; return level; }
+function fHolt(a, alpha, beta){
+  if (a.length<2) return fNaive(a);
+  let level=a[0], trend=a[1]-a[0];
+  for(let t=1;t<a.length;t++){ const lastLevel=level; level=alpha*a[t]+(1-alpha)*(level+trend); trend=beta*(level-lastLevel)+(1-beta)*trend; }
+  return level+trend;
+}
+function fHoltWinters(a, alpha, beta, gamma, s){
+  const n=a.length;
+  if (n < 2*s) return fHolt(a, alpha, beta);
+  let level = mean(a.slice(0,s));
+  let trend = (mean(a.slice(s,2*s)) - mean(a.slice(0,s))) / s;
+  let seasonal = a.slice(0,s).map(v => v - level);
+  for(let t=s;t<n;t++){
+    const idx = t % s;
+    const lastLevel = level;
+    level = alpha*(a[t]-seasonal[idx]) + (1-alpha)*(level+trend);
+    trend = beta*(level-lastLevel) + (1-beta)*trend;
+    seasonal[idx] = gamma*(a[t]-level) + (1-gamma)*seasonal[idx];
+  }
+  return level + trend + seasonal[n % s];
+}
+function fCroston(a, alpha, bias){
+  const nz=[], intervals=[]; let lastIdx=-1;
+  a.forEach((v,i)=>{ if (v>0){ nz.push(v); intervals.push(lastIdx===-1 ? i+1 : i-lastIdx); lastIdx=i; } });
+  if (!nz.length) return 0;
+  let zHat=nz[0], pHat=intervals[0];
+  for(let i=1;i<nz.length;i++){ zHat=alpha*nz[i]+(1-alpha)*zHat; pHat=alpha*intervals[i]+(1-alpha)*pHat; }
+  const rate = zHat/pHat;
+  return bias ? rate*(1-alpha/2) : rate;
+}
+function fTSB(a, alphaP, alphaZ){
+  if (!a.length) return 0;
+  let pHat = a[0]>0 ? 1 : 0;
+  let zHat = a[0]>0 ? a[0] : (mean(a.filter(v=>v>0)) || 0);
+  for(let t=1;t<a.length;t++){
+    const occurred = a[t] > 0;
+    pHat = alphaP*(occurred?1:0) + (1-alphaP)*pHat;
+    if (occurred) zHat = alphaZ*a[t] + (1-alphaZ)*zHat;
+  }
+  return pHat*zHat;
+}
+
+/* ---- Backtest simple para error WMAPE ---- */
+function forecastWithModel(demandSlice, model, params, seasonLen){
+  switch(model){
+    case 'Naive': return fNaive(demandSlice);
+    case 'Moving Average': return fMovingAverage(demandSlice, params.lookback);
+    case 'SES': return fSES(demandSlice, params.alpha);
+    case 'Holt': return fHolt(demandSlice, params.alpha, params.beta);
+    case 'Holt-Winters': return fHoltWinters(demandSlice, params.alpha, params.beta, params.gamma, seasonLen || chooseSeasonLength(demandSlice.length, params.seasonLength) || 4);
+    case 'Croston': return fCroston(demandSlice, params.alpha, false);
+    case 'SBA': return fCroston(demandSlice, params.alpha, true);
+    case 'TSB': return fTSB(demandSlice, params.beta, params.alpha);
+    default: return fNaive(demandSlice);
+  }
+}
+function computeWmape(demand, model, params){
+  const n = demand.length;
+  const holdout = Math.min(6, Math.floor(n/3));
+  if (holdout < 1) return null;
+  let errSum = 0, actSum = 0;
+  for (let i = n - holdout; i < n; i++){
+    const slice = demand.slice(0, i);
+    if (!slice.length) continue;
+    const f = forecastWithModel(slice, model, params);
+    errSum += Math.abs(demand[i] - f);
+    actSum += Math.abs(demand[i]);
+  }
+  if (actSum === 0) return null;
+  return round2((errSum/actSum)*100);
+}
+
+function classifyRisk(wmape, demandClass, abcClass){
+  if (wmape !== null && wmape > 80) return 'Alto';
+  if (['Lumpy','Erratic'].includes(demandClass) && ['A','B'].includes(abcClass)) return 'Alto';
+  if (['Lumpy','Erratic','Intermittent'].includes(demandClass)) return 'Medio';
+  return 'Bajo';
+}
+const RECOMMENDATION_TEXT = {
+  Lumpy: (model) => `Demanda lumpy. Evitar forecast tradicional puro; usar ${model}, política de revisión periódica/min-max y validación comercial.`,
+  Erratic: (model) => `Demanda frecuente pero variable. Usar ${model} con tratamiento de outliers y revisión de causas especiales.`,
+  Intermittent: (model) => `Demanda intermitente. Usar ${model} y política de revisión periódica; considerar agrupar pedidos.`,
+  Smooth: (model) => `Demanda estable. ${model} es adecuado; mantener revisión periódica estándar.`
+};
+function buildRecommendation(demandClass, model){ return (RECOMMENDATION_TEXT[demandClass] || RECOMMENDATION_TEXT.Smooth)(model); }
+
+function selectModelAndForecast(demand, demandClass, params){
+  const n = demand.length;
+  let model, forecast;
+  if (demandClass === 'Smooth'){
+    if (n < 8){ model='Naive'; forecast=fNaive(demand); }
+    else {
+      const seasonLen = chooseSeasonLength(n, params.seasonLength);
+      const trendPresent = Math.abs(linSlope(demand)) > 0.05 * (mean(demand)||1);
+      const seasonalPresent = seasonLen ? Math.abs(autocorr(demand, seasonLen)) > 0.3 : false;
+      if (seasonalPresent && trendPresent && seasonLen && n >= 2*seasonLen){ model='Holt-Winters'; forecast=fHoltWinters(demand, params.alpha, params.beta, params.gamma, seasonLen); }
+      else if (trendPresent){ model='Holt'; forecast=fHolt(demand, params.alpha, params.beta); }
+      else if (n >= 12){ model='SES'; forecast=fSES(demand, params.alpha); }
+      else { model='Moving Average'; forecast=fMovingAverage(demand, params.lookback); }
+    }
+  } else {
+    const nzCount = demand.filter(v=>v>0).length;
+    if (nzCount < 2){ model='Croston'; forecast=fCroston(demand, params.alpha, false); }
+    else if (demandClass === 'Lumpy'){ model='TSB'; forecast=fTSB(demand, params.beta, params.alpha); }
+    else { model='SBA'; forecast=fCroston(demand, params.alpha, true); }
+  }
+  return { model, forecast: round2(forecast) };
+}
+
+/* ================================================================
+   CLASIFICACIÓN ADI / CV² Y XYZ
+   ================================================================ */
+function classifyDemand(demandRaw){
+  const nz = demandRaw.filter(v=>v>0);
+  const n = demandRaw.length;
+  const adi = nz.length ? n/nz.length : n+1;
+  const mnz = mean(nz), snz = stdev(nz);
+  const cv2 = mnz>0 ? Math.pow(snz/mnz,2) : 0;
+  let demand_class;
+  if (adi < 1.32 && cv2 < 0.49) demand_class = 'Smooth';
+  else if (adi >= 1.32 && cv2 < 0.49) demand_class = 'Intermittent';
+  else if (adi < 1.32 && cv2 >= 0.49) demand_class = 'Erratic';
+  else demand_class = 'Lumpy';
+  return { adi: round2(adi), cv2: round2(cv2), demand_class };
+}
+function classifyXyz(cvAll){
+  return cvAll < 0.5 ? 'X' : (cvAll <= 1.0 ? 'Y' : 'Z');
+}
+
+/* ================================================================
+   PARÁMETROS
+   ================================================================ */
+function collectParams(){
+  return {
+    serviceLevel: (parseFloat(document.getElementById('pServiceLevel').value)||95)/100,
+    ltUnit: document.getElementById('pLtUnit').value,
+    ltDefault: parseFloat(document.getElementById('pLtDefault').value)||21,
+    grDefault: parseFloat(document.getElementById('pGrDefault').value)||5,
+    alpha: parseFloat(document.getElementById('pAlpha').value)||0.3,
+    beta: parseFloat(document.getElementById('pBeta').value)||0.1,
+    gamma: parseFloat(document.getElementById('pGamma').value)||0.1,
+    seasonLength: document.getElementById('pSeasonLength').value,
+    excludeOutliers: document.getElementById('pExcludeOutliers').checked,
+    iqrK: parseFloat(document.getElementById('pIqrK').value)||1.5,
+    lookback: parseInt(document.getElementById('pLookback').value)||4,
+    horizon: parseInt(document.getElementById('pHorizon').value)||10
+  };
+}
+
+/* ================================================================
+   CARGA DE ARCHIVO Y MAPEO DE COLUMNAS
+   ================================================================ */
+document.getElementById('dropzone').addEventListener('dragover', e=>{ e.preventDefault(); e.target.classList.add('drag'); });
+document.getElementById('dropzone').addEventListener('dragleave', e=> e.target.classList.remove('drag'));
+document.getElementById('dropzone').addEventListener('drop', e=>{ e.preventDefault(); e.target.classList.remove('drag'); if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]); });
+
+function handleFile(file){
+  if (!file) return;
+  const status = document.getElementById('fileStatus');
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (ext === 'csv'){
+    Papa.parse(file, { header:true, skipEmptyLines:true, complete:(res)=>onParsed(res.meta.fields, res.data, file.name) });
+  } else {
+    const reader = new FileReader();
+    reader.onload = (e)=>{
+      const wb = XLSX.read(e.target.result, { type:'array' });
+      const sheetName = wb.SheetNames.includes('Datos') ? 'Datos' : wb.SheetNames[0];
+      const json = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' });
+      const headers = json.length ? Object.keys(json[0]) : [];
+      onParsed(headers, json, file.name);
+    };
+    reader.readAsArrayBuffer(file);
+  }
+}
+
+function onParsed(headers, rows, name){
+  parsedHeaders = headers.filter(h=>h && h.trim()!=='');
+  parsedRows = rows.filter(r => Object.values(r).some(v=>v!==''));
+  document.getElementById('fileStatus').textContent = `${parsedRows.length} filas y ${parsedHeaders.length} columnas detectadas. Revisa el mapeo y presiona "Analizar SKUs".`;
+  showMapping();
+}
+
+function guessColumn(headers, patterns){
+  for (const h of headers) for (const p of patterns) if (p.test(h)) return h;
+  return headers[0] || '';
+}
+function detectPeriodRange(headers, excluded){
+  const candidates = headers.filter(h => !excluded.includes(h));
+  const numeric = candidates.filter(h => /^w?\d+$/i.test(h.trim()) || /^\d{4}[-\/]\d{1,2}$/.test(h.trim()) || /^m\d+$/i.test(h.trim()));
+  const pool = numeric.length ? numeric : candidates;
+  return { first: pool[0] || headers[headers.length-1], last: pool[pool.length-1] || headers[headers.length-1] };
+}
+
+function showMapping(){
+  const skuGuess = guessColumn(parsedHeaders, [/^material$/i, /sku/i, /codigo|code/i]);
+  const ltGuess = guessColumn(parsedHeaders, [/^lt$/i, /lead.?time/i]);
+  const grGuess = guessColumn(parsedHeaders, [/gr.?process/i, /transito|transit|recep/i]);
+  const descGuess = guessColumn(parsedHeaders, [/desc/i]);
+  const familyGuess = guessColumn(parsedHeaders, [/famil/i, /categor/i]);
+  const plantGuess = guessColumn(parsedHeaders, [/plant/i, /planta/i]);
+  const excluded = [skuGuess, ltGuess, grGuess, descGuess, familyGuess, plantGuess];
+  const periodRange = detectPeriodRange(parsedHeaders, excluded);
+
+  fillSelect('mapSku', parsedHeaders, skuGuess);
+  fillSelect('mapLt', parsedHeaders, ltGuess);
+  fillSelect('mapGr', parsedHeaders, grGuess);
+  fillSelect('mapFirstPeriod', parsedHeaders, periodRange.first);
+  fillSelect('mapLastPeriod', parsedHeaders, periodRange.last);
+
+  window._extraMapping = { desc: descGuess, family: familyGuess, plant: plantGuess };
+  document.getElementById('mappingBlock').classList.remove('hidden');
+}
+function fillSelect(id, headers, selected){
+  const el = document.getElementById(id);
+  el.innerHTML = headers.map(h => `<option value="${h}" ${h===selected?'selected':''}>${h}</option>`).join('');
+}
+function clearImport(){
+  parsedHeaders=[]; parsedRows=[];
+  document.getElementById('mappingBlock').classList.add('hidden');
+  document.getElementById('fileStatus').textContent='';
+  document.getElementById('fileInput').value='';
+}
+
+async function importFromGoogleSheet(){
+  const url = document.getElementById('sheetUrl').value.trim();
+  const status = document.getElementById('fileStatus');
+  const m = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+  if (!m){ status.textContent = 'No pude reconocer el enlace de Google Sheets.'; return; }
+  const gidMatch = url.match(/[#&?]gid=([0-9]+)/);
+  const csvUrl = `https://docs.google.com/spreadsheets/d/${m[1]}/export?format=csv&gid=${gidMatch?gidMatch[1]:'0'}`;
+  status.textContent = 'Descargando datos de Google Sheets...';
+  try{
+    const res = await fetch(csvUrl);
+    if (!res.ok) throw new Error('No se pudo leer la hoja. Verifica que esté compartida como "Cualquiera con el enlace".');
+    const text = await res.text();
+    const parsed = Papa.parse(text, { header:true, skipEmptyLines:true });
+    onParsed(parsed.meta.fields, parsed.data, url);
+  }catch(err){ status.textContent = 'Error: ' + err.message; }
+}
+
+/* ================================================================
+   ANÁLISIS PRINCIPAL
+   ================================================================ */
+async function analyzeSkus(){
+  const status = document.getElementById('importStatus');
+  const bar = document.getElementById('progressBar');
+  const params = collectParams();
+  window._lastParams = params;
+  const mapSku = document.getElementById('mapSku').value;
+  const mapLt = document.getElementById('mapLt').value;
+  const mapGr = document.getElementById('mapGr').value;
+  const firstP = document.getElementById('mapFirstPeriod').value;
+  const lastP = document.getElementById('mapLastPeriod').value;
+  const firstIdx = parsedHeaders.indexOf(firstP);
+  const lastIdx = parsedHeaders.indexOf(lastP);
+  const periodCols = firstIdx <= lastIdx ? parsedHeaders.slice(firstIdx, lastIdx+1) : parsedHeaders.slice(lastIdx, firstIdx+1);
+  const extra = window._extraMapping || {};
+
+  status.textContent = `Procesando ${parsedRows.length} SKUs...`;
+  const built = [];
+  let hasCostBasis = false;
+
+  for (const r of parsedRows){
+    const sku = String(r[mapSku] || '').trim();
+    if (!sku) continue;
+    let demandRaw = periodCols.map(c => parseFloat(r[c]) || 0);
+    const demandForStats = params.excludeOutliers ? iqrCap(demandRaw, params.iqrK) : demandRaw;
+
+    const { adi, cv2, demand_class } = classifyDemand(demandForStats);
+    const avg = mean(demandForStats);
+    const sd = stdev(demandForStats);
+    const cvAll = avg>0 ? sd/avg : 0;
+    const xyz_class = classifyXyz(cvAll);
+
+    const { model, forecast } = selectModelAndForecast(demandForStats, demand_class, params);
+
+    const lt = parseFloat(r[mapLt]) || params.ltDefault;
+    const gr = parseFloat(r[mapGr]) || params.grDefault;
+    const leadTimePeriods = params.ltUnit === 'dias' ? (lt+gr)/7 : (lt+gr);
+
+    const z = zScore(params.serviceLevel);
+    const safety_stock = round2(z * sd * Math.sqrt(Math.max(leadTimePeriods,0.1)));
+    const reorder_point = round2(forecast * leadTimePeriods + safety_stock);
+    const total_volume = round2(demandRaw.reduce((a,b)=>a+b,0));
+    const unit_cost = parseFloat(r.unit_cost) || 0;
+    if (unit_cost > 0) hasCostBasis = true;
+
+    const outliers_count = demandRaw.reduce((c,v,i)=> c + (v !== demandForStats[i] ? 1 : 0), 0);
+    const wmape = computeWmape(demandForStats, model, params);
+
+    built.push({
+      sku, description: r[extra.desc] || '', category: r[extra.family] || '', plant: r[extra.plant] || '',
+      unit_cost, unit_price: parseFloat(r.unit_price) || 0,
+      lead_time_days: lt, gr_days: gr, service_level: params.serviceLevel,
+      lt_total_periods: round2(leadTimePeriods),
+      demand_history: demandRaw,
+      avg_demand: round2(avg), std_demand: round2(sd), cv: round2(cvAll),
+      adi, cv2, demand_class, recommended_model: model,
+      forecast_next: forecast, safety_stock, reorder_point,
+      total_volume, unit_cost_basis: unit_cost,
+      wmape, outliers_count
+    });
+  }
+
+  // ABC: por valor (si hay costo) o por volumen
+  const sorted = [...built].sort((a,b)=> hasCostBasis ? (b.unit_cost_basis*b.total_volume - a.unit_cost_basis*a.total_volume) : (b.total_volume - a.total_volume));
+  const totalBasis = sorted.reduce((s,r)=> s + (hasCostBasis ? r.unit_cost_basis*r.total_volume : r.total_volume), 0) || 1;
+  let cum = 0;
+  const abcMap = {};
+  sorted.forEach(r=>{
+    const val = hasCostBasis ? r.unit_cost_basis*r.total_volume : r.total_volume;
+    cum += val;
+    const pct = cum/totalBasis;
+    abcMap[r.sku] = pct<=0.80 ? 'A' : (pct<=0.95 ? 'B' : 'C');
+  });
+  built.forEach(r=>{
+    r.abc_class = abcMap[r.sku];
+    r.annual_value = round2(hasCostBasis ? r.unit_cost_basis*r.total_volume : r.total_volume);
+    r.risk = classifyRisk(r.wmape, r.demand_class, r.abc_class);
+    r.recommendation = buildRecommendation(r.demand_class, r.recommended_model);
+    delete r.unit_cost_basis;
+  });
+
+  if (!supabaseClient){ status.textContent = 'Configura Supabase para guardar los resultados.'; return; }
+
+  const CHUNK = 500;
+  let uploaded = 0;
+  for (let i=0;i<built.length;i+=CHUNK){
+    const chunk = built.slice(i, i+CHUNK);
+    const { error } = await supabaseClient.from('skus').upsert(chunk, { onConflict:'sku' });
+    if (error){ status.textContent = `Error subiendo lote ${i}-${i+chunk.length}: ${error.message}`; return; }
+    uploaded += chunk.length;
+    bar.style.width = Math.round((uploaded/built.length)*100)+'%';
+    status.textContent = `Analizados y subidos ${uploaded} / ${built.length} SKUs...`;
+  }
+  await supabaseClient.from('import_log').insert({ source:'file', filename:'import', rows_imported: built.length });
+  status.textContent = `Análisis completo: ${built.length} SKUs procesados.`;
+  await loadAllSkus();
+  showView('dashboard');
+}
+
+/* ================================================================
+   CARGA / DASHBOARD
+   ================================================================ */
+async function loadAllSkus(){
+  if (!supabaseClient) return;
+  allSkus = [];
+  const PAGE = 1000; let from = 0;
+  while (true){
+    const { data, error } = await supabaseClient.from('skus').select('*').range(from, from+PAGE-1);
+    if (error) return;
+    allSkus = allSkus.concat(data);
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+  populateFilterOptions();
+  applyFilters();
+}
+function populateFilterOptions(){
+  const families = [...new Set(allSkus.map(r=>r.category).filter(Boolean))].sort();
+  const plants = [...new Set(allSkus.map(r=>r.plant).filter(Boolean))].sort();
+  fillFilterSelect('filterFamily', families, 'Todos (Familia)');
+  fillFilterSelect('filterPlant', plants, 'Todos (Planta)');
+  fillFilterSelect('filterModel', MODEL_LIST, 'Sin filtro (Modelo)');
+}
+function fillFilterSelect(id, values, defaultLabel){
+  const el = document.getElementById(id);
+  const current = el.value;
+  el.innerHTML = `<option value="">${defaultLabel}</option>` + values.map(v=>`<option value="${v}">${v}</option>`).join('');
+  if (values.includes(current)) el.value = current;
+}
+
+function applyFilters(){
+  const q = document.getElementById('searchBox').value.toLowerCase();
+  const fam = document.getElementById('filterFamily').value;
+  const plant = document.getElementById('filterPlant').value;
+  const abc = document.getElementById('filterAbc').value;
+  const cls = document.getElementById('filterClass').value;
+  const model = document.getElementById('filterModel').value;
+  filteredSkus = allSkus.filter(r=>{
+    const matchQ = !q || (r.sku||'').toLowerCase().includes(q) || (r.description||'').toLowerCase().includes(q);
+    return matchQ && (!fam || r.category===fam) && (!plant || r.plant===plant) && (!abc || r.abc_class===abc) && (!cls || r.demand_class===cls) && (!model || r.recommended_model===model);
+  });
+  sortRows(); currentPage = 1;
+  renderAll();
+}
+function clearFilters(){
+  document.getElementById('searchBox').value='';
+  ['filterFamily','filterPlant','filterAbc','filterClass','filterModel'].forEach(id=>document.getElementById(id).value='');
+  applyFilters();
+}
+
+function renderAll(){
+  renderKpis();
+  renderKpiStrip();
+  renderTable();
+  renderAdiCvChart();
+  renderSeasonalityChart();
+  renderAbcXyzMatrix();
+  renderDemandClassChart();
+  renderTop15Chart();
+  renderModelDistChart();
+  document.getElementById('btnVerTodos').textContent = `Ver todos (${filteredSkus.length})`;
+}
+
+function renderKpis(){
+  document.getElementById('kpiTotal').textContent = filteredSkus.length.toLocaleString();
+  const totalValue = filteredSkus.reduce((s,r)=> s+(r.annual_value||0), 0);
+  document.getElementById('kpiValue').textContent = Math.round(totalValue).toLocaleString();
+  document.getElementById('kpiA').textContent = filteredSkus.filter(r=>r.abc_class==='A').length;
+  document.getElementById('kpiB').textContent = filteredSkus.filter(r=>r.abc_class==='B').length;
+  document.getElementById('kpiC').textContent = filteredSkus.filter(r=>r.abc_class==='C').length;
+}
+
+function sortBy(field){ sortDir = (sortField===field && sortDir==='desc') ? 'asc' : 'desc'; sortField=field; sortRows(); renderTable(); }
+function sortRows(){
+  filteredSkus.sort((a,b)=>{
+    let va=a[sortField], vb=b[sortField];
+    if (typeof va==='string'){ va=(va||'').toLowerCase(); vb=(vb||'').toLowerCase(); } else { va=va||0; vb=vb||0; }
+    if (va<vb) return sortDir==='asc'?-1:1;
+    if (va>vb) return sortDir==='asc'?1:-1;
+    return 0;
+  });
+}
+const DEFAULT_TOP_N = 10;
+function toggleVerTodos(){ verTodos = !verTodos; currentPage=1; renderTable(); }
+function renderKpiStrip(){
+  const p = window._lastParams;
+  const abcA = filteredSkus.filter(r=>r.abc_class==='A').length;
+  const riskAlto = filteredSkus.filter(r=>r.risk==='Alto').length;
+  document.getElementById('kpiStrip').innerHTML =
+    `<b>SKUs filtrados:</b> ${filteredSkus.length.toLocaleString()} de ${allSkus.length.toLocaleString()} &nbsp;·&nbsp; ` +
+    `<b>ABC A:</b> ${abcA.toLocaleString()} &nbsp;·&nbsp; <b>Riesgo alto:</b> ${riskAlto.toLocaleString()} &nbsp;·&nbsp; ` +
+    `<b>Servicio objetivo:</b> ${p ? Math.round(p.serviceLevel*100) : '—'}%`;
+}
+function renderTable(){
+  const tbody = document.getElementById('skuTableBody');
+  let rows;
+  if (verTodos){
+    rows = filteredSkus.slice((currentPage-1)*PAGE_SIZE, currentPage*PAGE_SIZE);
+    document.getElementById('btnPrev').classList.remove('hidden');
+    document.getElementById('btnNext').classList.remove('hidden');
+  } else {
+    rows = filteredSkus.slice(0, DEFAULT_TOP_N);
+    document.getElementById('btnPrev').classList.add('hidden');
+    document.getElementById('btnNext').classList.add('hidden');
+  }
+  tbody.innerHTML = rows.map((r,i)=>`
+    <tr onclick="openSkuDetail('${r.sku.replace(/'/g,"\\'")}')" style="cursor:pointer;">
+      <td>${r.sku}</td>
+      <td><span class="badge badge-${r.abc_class}">${r.abc_class||''}</span></td>
+      <td>${r.xyz_class||''}</td>
+      <td><span class="badge badge-${r.demand_class}">${r.demand_class||''}</span></td>
+      <td>${(r.avg_demand||0).toLocaleString()}</td>
+      <td>${(r.cv||0)}</td>
+      <td>${(r.cv2||0)}</td>
+      <td>${(r.adi||0)}</td>
+      <td>${(r.lt_total_periods||0)}</td>
+      <td>${(r.safety_stock||0).toLocaleString()}</td>
+      <td>${(r.reorder_point||0).toLocaleString()}</td>
+      <td>${(r.forecast_next||0).toLocaleString()}</td>
+      <td>${r.recommended_model||''}</td>
+      <td>${r.wmape!=null ? r.wmape+'%' : '—'}</td>
+      <td><span class="badge badge-${r.risk==='Alto'?'C':(r.risk==='Medio'?'B':'A')}">${r.risk||''}</span></td>
+      <td>${r.outliers_count||0}</td>
+      <td class="small" style="white-space:normal;max-width:260px;">${r.recommendation||''}</td>
+    </tr>`).join('');
+  const totalPages = Math.max(1, Math.ceil(filteredSkus.length/PAGE_SIZE));
+  document.getElementById('pageInfo').textContent = verTodos ? `Página ${currentPage} de ${totalPages}` : 'Top 10 por safety stock';
+  document.getElementById('rowRange').textContent = `${rows.length} de ${filteredSkus.length} filtrados (${allSkus.length} totales)`;
+}
+function nextPage(){ if (verTodos && currentPage < Math.ceil(filteredSkus.length/PAGE_SIZE)){ currentPage++; renderTable(); } }
+function prevPage(){ if (verTodos && currentPage>1){ currentPage--; renderTable(); } }
+
+function openSkuDetail(sku){
+  const r = filteredSkus.find(x=>x.sku===sku) || allSkus.find(x=>x.sku===sku);
+  if (!r) return;
+  document.getElementById('modalTitle').textContent = `Detalle — ${r.sku}`;
+  const rowsHtml = [
+    ['Descripción', r.description||'—'], ['Familia', r.category||'—'], ['Planta', r.plant||'—'],
+    ['Tipo de demanda', r.demand_class], ['Modelo recomendado', r.recommended_model],
+    ['ABC', r.abc_class], ['XYZ', r.xyz_class], ['ADI', r.adi], ['CV²', r.cv2], ['CV', r.cv],
+    ['Demanda promedio', r.avg_demand], ['Desv. estándar', r.std_demand],
+    ['LT total (periodos)', r.lt_total_periods], ['Pronóstico siguiente', r.forecast_next],
+    ['Safety stock', r.safety_stock], ['Punto de reorden', r.reorder_point],
+    ['Error WMAPE', r.wmape!=null ? r.wmape+'%' : '—'], ['Riesgo', r.risk], ['Outliers detectados', r.outliers_count],
+    ['Recomendación', r.recommendation]
+  ];
+  document.getElementById('modalBody').innerHTML = '<table>' + rowsHtml.map(([k,v])=>`<tr><td style="color:var(--muted);">${k}</td><td>${v}</td></tr>`).join('') + '</table>';
+  document.getElementById('skuDetailModal').classList.remove('hidden');
+}
+function closeSkuDetail(){ document.getElementById('skuDetailModal').classList.add('hidden'); }
+
+/* ================================================================
+   GRÁFICOS
+   ================================================================ */
+function destroyChart(key){ if (charts[key]){ charts[key].destroy(); delete charts[key]; } }
+
+function renderAdiCvChart(){
+  destroyChart('adiCv');
+  const colors = { Smooth:'#1fae7a', Erratic:'#e8a319', Intermittent:'#2f5cf6', Lumpy:'#e14a52' };
+  const datasets = Object.keys(colors).map(cls => ({
+    label: cls,
+    data: filteredSkus.filter(r=>r.demand_class===cls).map(r=>({x:r.adi, y:r.cv2, sku:r.sku})),
+    backgroundColor: colors[cls]
+  }));
+  const maxAdi = Math.max(3, ...filteredSkus.map(r=>r.adi||0));
+  const maxCv2 = Math.max(2, ...filteredSkus.map(r=>r.cv2||0));
+  datasets.push({ label:'Umbral ADI', data:[{x:1.32,y:0},{x:1.32,y:maxCv2}], type:'line', borderColor:'#999', borderDash:[6,4], pointRadius:0, showLine:true });
+  datasets.push({ label:'Umbral CV²', data:[{x:0,y:0.49},{x:maxAdi,y:0.49}], type:'line', borderColor:'#999', borderDash:[6,4], pointRadius:0, showLine:true });
+  charts.adiCv = new Chart(document.getElementById('chartAdiCv'), {
+    type:'scatter', data:{datasets},
+    options:{ responsive:true, scales:{ x:{title:{display:true,text:'ADI'}}, y:{title:{display:true,text:'CV²'}} },
+      plugins:{ tooltip:{ callbacks:{ label:(ctx)=> ctx.raw.sku ? `${ctx.raw.sku} (ADI ${ctx.raw.x}, CV² ${ctx.raw.y})` : ctx.dataset.label } } } }
+  });
+}
+function renderSeasonalityChart(){
+  destroyChart('season');
+  if (!filteredSkus.length){ return; }
+  const maxLen = Math.max(...filteredSkus.map(r=> (r.demand_history||[]).length));
+  const totals = new Array(maxLen).fill(0);
+  filteredSkus.forEach(r=> (r.demand_history||[]).forEach((v,i)=> totals[i]+=v));
+  charts.season = new Chart(document.getElementById('chartSeasonality'), {
+    type:'line', data:{ labels: totals.map((_,i)=>`P${i+1}`), datasets:[{ label:'Demanda total', data: totals, borderColor:'#2f5cf6', backgroundColor:'rgba(47,92,246,.1)', fill:true, tension:.25, pointRadius:0 }] },
+    options:{ responsive:true, plugins:{legend:{display:false}} }
+  });
+}
+function renderAbcXyzMatrix(){
+  const grid = {};
+  ['A','B','C'].forEach(a=> grid[a] = {X:0,Y:0,Z:0});
+  filteredSkus.forEach(r=>{ if (grid[r.abc_class] && r.xyz_class) grid[r.abc_class][r.xyz_class]++; });
+  let html = '<table class="matrix-table"><thead><tr><th></th><th>X</th><th>Y</th><th>Z</th></tr></thead><tbody>';
+  ['A','B','C'].forEach(a=>{
+    html += `<tr><th>${a}</th>`;
+    ['X','Y','Z'].forEach(x=> html += `<td><span class="matrix-cell badge-${a}">${grid[a][x]}</span></td>`);
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('abcXyzMatrix').innerHTML = html;
+}
+function renderDemandClassChart(){
+  destroyChart('demandClass');
+  const order = ['Smooth','Intermittent','Erratic','Lumpy'];
+  const colors = ['#1fae7a','#2f5cf6','#e8a319','#e14a52'];
+  const counts = order.map(c => filteredSkus.filter(r=>r.demand_class===c).length);
+  charts.demandClass = new Chart(document.getElementById('chartDemandClass'), {
+    type:'bar', data:{ labels:order, datasets:[{ data:counts, backgroundColor:colors }] },
+    options:{ responsive:true, plugins:{legend:{display:false}} }
+  });
+}
+function renderTop15Chart(){
+  destroyChart('top15');
+  const top = [...filteredSkus].sort((a,b)=> (b.safety_stock||0)-(a.safety_stock||0)).slice(0,15);
+  charts.top15 = new Chart(document.getElementById('chartTop15'), {
+    type:'bar', data:{ labels: top.map(r=>r.sku), datasets:[{ data: top.map(r=>r.safety_stock), backgroundColor:'#2f5cf6' }] },
+    options:{ indexAxis:'y', responsive:true, plugins:{legend:{display:false}} }
+  });
+}
+function renderModelDistChart(){
+  destroyChart('modelDist');
+  const counts = MODEL_LIST.map(m => filteredSkus.filter(r=>r.recommended_model===m).length);
+  charts.modelDist = new Chart(document.getElementById('chartModelDist'), {
+    type:'bar', data:{ labels: MODEL_LIST, datasets:[{ data: counts, backgroundColor:'#2f5cf6' }] },
+    options:{ responsive:true, plugins:{legend:{display:false}} }
+  });
+}
+
+/* ================================================================
+   EXPORTACIONES
+   ================================================================ */
+const EXPORT_COLS = ['sku','description','category','plant','abc_class','xyz_class','demand_class','avg_demand','cv','cv2','adi','lt_total_periods','safety_stock','reorder_point','forecast_next','recommended_model','wmape','risk','outliers_count','recommendation','annual_value'];
+function exportCsv(){
+  const csv = [EXPORT_COLS.join(',')].concat(filteredSkus.map(r=> EXPORT_COLS.map(c=>`"${r[c] ?? ''}"`).join(','))).join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'sku_dashboard_export.csv'; a.click();
+}
+function exportExcel(){
+  const data = filteredSkus.map(r => { const o={}; EXPORT_COLS.forEach(c=> o[c]=r[c]); return o; });
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Resultados');
+  XLSX.writeFile(wb, 'sku_dashboard_export.xlsx');
+}
+
+/* ================================================================
+   PLANTILLA EXCEL DESCARGABLE (misma estructura que la original)
+   ================================================================ */
+function downloadTemplate(){
+  const wb = XLSX.utils.book_new();
+  const instructions = [
+    ['SKU Forecast & Safety Stock Analyzer — Template de carga'],
+    [''],
+    ['Instrucciones:'],
+    ['1. Llena la hoja "Datos" con una fila por SKU.'],
+    ['2. Columnas obligatorias: Material (código de SKU), LT (lead time de manufactura) y GR processing (tránsito/recepción).'],
+    ['3. Las columnas W001, W002... son los periodos de consumo (semanas, meses o periodos genéricos). Deben ser numéricas y contiguas.'],
+    ['4. Puedes agregar columnas de metadata (Descripción, Familia, Planta, etc.) antes de los periodos; la app las usará como filtros.'],
+    ['5. Puedes agregar o quitar columnas de periodos según tu historia disponible (mínimo recomendado: 24).'],
+    ['6. Guarda como .xlsx o .csv y súbelo en la sección "1. Carga de archivo".'],
+    ['7. Las filas de ejemplo son EJEMPLO: bórralas y reemplázalas con tus datos.'],
+    [''],
+    ['Autor de la app original: Jesús Vázquez — https://www.linkedin.com/in/jvazquezh/']
+  ];
+  const wsInstr = XLSX.utils.aoa_to_sheet(instructions);
+  XLSX.utils.book_append_sheet(wb, wsInstr, 'Instrucciones');
+
+  const nWeeks = 52;
+  const headers = ['Material','Descripcion','Family','Plant','LT','GR processing', ...Array.from({length:nWeeks},(_,i)=>'W'+String(i+1).padStart(3,'0'))];
+  const families = ['Lácteos','Snacks','Bebidas','Limpieza','Cuidado Personal','Refacciones'];
+  const plants = ['QRO','SLP','GDL','MTY'];
+  const rows = [headers];
+  for (let i=1;i<=20;i++){
+    const base = 40 + Math.round(Math.random()*80);
+    const row = [
+      'SKU-' + String(i).padStart(5,'0'),
+      'Producto de ejemplo ' + i,
+      families[i % families.length],
+      plants[i % plants.length],
+      10 + Math.round(Math.random()*40),
+      3 + Math.round(Math.random()*10)
+    ];
+    for (let w=0; w<nWeeks; w++) row.push(Math.max(0, Math.round(base + (Math.random()-0.5)*base*0.6)));
+    rows.push(row);
+  }
+  const wsData = XLSX.utils.aoa_to_sheet(rows);
+  XLSX.utils.book_append_sheet(wb, wsData, 'Datos');
+  XLSX.writeFile(wb, 'template_forecast_skus.xlsx');
+}
+</script>
+</body>
+</html>
